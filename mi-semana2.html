@@ -162,6 +162,14 @@
   .del-btn:active { background: rgba(248,113,113,0.2); color: var(--fisico); border-color: var(--fisico); }
   .del-btn.confirming { background: var(--neg); color: white; border-color: var(--neg); }
   .reset-link.confirming { color: var(--neg); text-decoration: none; font-weight: 700; }
+
+  .workout-entries { display: flex; flex-direction: column; gap: 8px; }
+  .workout-entry {
+    background: var(--surface-2); border-radius: 10px; padding: 10px 12px;
+  }
+  .workout-entry .wtop { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+  .workout-entry .wdate { font-size: 11px; font-weight: 800; color: var(--gold); }
+  .workout-entry .wtext { font-size: 12.5px; color: var(--text); white-space: pre-wrap; line-height: 1.5; }
   .peso-entry .d { color: var(--text-dim); }
   .peso-entry .v { font-weight: 800; }
   .peso-entry .delta { font-size: 10.5px; margin-left: 6px; }
@@ -230,6 +238,9 @@
   .cal-bar-track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
   .cal-bar-fill { height: 100%; background: linear-gradient(90deg,var(--gold),#2E86C1); border-radius: 999px; }
   .cal-bar-fill.over { background: linear-gradient(90deg,var(--fisico),#F87171); }
+  .cal-remaining { margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+  .cal-remaining strong { color: var(--gold); font-weight: 800; }
+  .cal-remaining.done strong { color: var(--pos); }
 
   .foot-msg {
     text-align: center; font-size: 11px; color: var(--text-mute); padding: 18px 20px 4px;
@@ -269,7 +280,7 @@
 <div id="app">
   <div class="hero">
     <h1>WINTER ARC</h1>
-    <div class="badge">❄️ Semana 1 — no pares</div>
+    <div class="badge">❄️ Semana 2 — no pares</div>
     <div class="toplevel-tabs">
       <button id="tabRutina" class="active">✅ Routine</button>
       <button id="tabPeso">💪 Physical</button>
@@ -319,6 +330,14 @@
       <div class="peso-chart"><svg id="pesoSvg" width="100%" height="90" viewBox="0 0 300 90" preserveAspectRatio="none"></svg></div>
       <div class="stats-inline" id="pesoStatsInline"></div>
       <div class="peso-entries" id="pesoEntries"></div>
+    </div>
+
+    <div class="peso-card" style="margin-top:12px;">
+      <div class="stats-title">🏋️ Entrenamientos</div>
+      <input type="date" id="workoutDate" style="width:100%; margin-bottom:8px;" class="trading-note-input" />
+      <textarea id="workoutText" placeholder="Pega aquí tu entreno (igual que lo apuntas en Notas)..." class="trading-note-input" style="min-height:110px; resize:vertical; font-family:inherit;"></textarea>
+      <button id="workoutAdd" class="summary-btn" style="margin-top:8px;">Guardar entrenamiento</button>
+      <div class="workout-entries" id="workoutEntries" style="margin-top:14px;"></div>
     </div>
   </div>
 
@@ -868,9 +887,11 @@ async function renderCal() {
   const todayTotal = all.filter(e => e.date === todayStr).reduce((s,e) => s + e.kcal, 0);
   const pct = Math.min(todayTotal / CAL_GOAL, 1);
   const over = todayTotal > CAL_GOAL;
+  const remaining = CAL_GOAL - todayTotal;
   document.getElementById('calToday').innerHTML = `
     <div class="row"><span class="kcal">${todayTotal} kcal hoy</span><span class="goal">objetivo ${CAL_GOAL}</span></div>
-    <div class="cal-bar-track"><div class="cal-bar-fill ${over ? 'over' : ''}" style="width:${pct*100}%"></div></div>`;
+    <div class="cal-bar-track"><div class="cal-bar-fill ${over ? 'over' : ''}" style="width:${pct*100}%"></div></div>
+    <div class="cal-remaining ${remaining <= 0 ? 'done' : ''}">${remaining > 0 ? `Te quedan <strong>${remaining} kcal</strong> hoy` : `Objetivo cumplido — <strong>+${Math.abs(remaining)} kcal</strong> de más`}</div>`;
 
   const entries = filterByRange(all, calRange);
   drawCalBars(entries);
@@ -969,6 +990,7 @@ document.getElementById('tabPeso').addEventListener('click', () => {
   showView('pesoView');
   renderPeso();
   renderCal();
+  renderWorkouts();
 });
 document.getElementById('tabMoney').addEventListener('click', () => {
   setActiveTab('tabMoney');
@@ -1146,6 +1168,47 @@ document.getElementById('ahorrosAdd').addEventListener('click', async () => {
 });
 document.getElementById('ahorrosDate').valueAsDate = new Date();
 
+/* ---------- ENTRENAMIENTOS ---------- */
+async function loadWorkouts() {
+  const raw = await storeGet('workouts:entries');
+  return raw ? JSON.parse(raw) : [];
+}
+async function saveWorkouts(entries) {
+  await storeSet('workouts:entries', JSON.stringify(entries));
+}
+
+async function renderWorkouts() {
+  const all = await loadWorkouts();
+  const sorted = [...all].sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const el = document.getElementById('workoutEntries');
+  if (!sorted.length) {
+    el.innerHTML = `<div class="peso-empty">Aún no has guardado ningún entrenamiento.</div>`;
+    return;
+  }
+  el.innerHTML = sorted.map(w => {
+    const dt = new Date(w.date + 'T00:00:00');
+    const dstr = dt.toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: 'short' });
+    return `<div class="workout-entry">
+      <div class="wtop"><span class="wdate">${dstr}</span><button class="del-btn" data-kind="workout" data-id="${w.id}">✕</button></div>
+      <div class="wtext">${w.text.replace(/</g,'&lt;')}</div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('workoutAdd').addEventListener('click', async () => {
+  const dateEl = document.getElementById('workoutDate');
+  const textEl = document.getElementById('workoutText');
+  const date = dateEl.value;
+  const text = textEl.value.trim();
+  if (!date || !text) return;
+  const entries = await loadWorkouts();
+  entries.push({ id: newId(), date, text });
+  await saveWorkouts(entries);
+  textEl.value = '';
+  renderWorkouts();
+});
+document.getElementById('workoutDate').valueAsDate = new Date();
+
 /* ---------- BORRAR REGISTROS ---------- */
 document.getElementById('app').addEventListener('click', async (e) => {
   const btn = e.target.closest('.del-btn');
@@ -1184,6 +1247,10 @@ document.getElementById('app').addEventListener('click', async (e) => {
     const entries = await loadCal();
     await saveCal(entries.filter(x => x.id !== id));
     renderCal();
+  } else if (kind === 'workout') {
+    const entries = await loadWorkouts();
+    await saveWorkouts(entries.filter(x => x.id !== id));
+    renderWorkouts();
   }
 });
 
@@ -1264,6 +1331,19 @@ async function buildSummary() {
     lines.push('  (sin movimientos aún)');
   } else {
     asorted.forEach(e => lines.push(`  ${e.date}: ${e.amount >= 0 ? '+' : ''}${e.amount.toFixed(2)}€ [${e.category}]${e.note ? ' — ' + e.note : ''}`));
+  }
+  lines.push('');
+
+  const workouts = await loadWorkouts();
+  const wsorted = [...workouts].sort((a,b) => a.date.localeCompare(b.date));
+  lines.push('Entrenamientos:');
+  if (!wsorted.length) {
+    lines.push('  (sin registros aún)');
+  } else {
+    wsorted.forEach(w => {
+      lines.push(`  ${w.date}:`);
+      w.text.split('\n').forEach(line => lines.push(`    ${line}`));
+    });
   }
   return lines.join('\n');
 }
